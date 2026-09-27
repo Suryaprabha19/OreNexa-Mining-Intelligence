@@ -1,0 +1,7 @@
+mine_id,mine_name,state,latitude,longitude,mine_type,active_since
+MN01,Balaghat Mine,Madhya Pradesh,21.805,80.184,Underground,1908
+MN02,Ukwa Mine,Madhya Pradesh,21.752,80.151,Underground,1965
+MN03,Munsar Mine,Madhya Pradesh,21.699,80.252,Opencast,1974
+MN04,Gumgaon Mine,Maharashtra,21.048,79.152,Underground,1912
+MN05,Kandri Mine,Maharashtra,21.252,79.096,Opencast,1958
+MN06,Chikla Mine,Maharashtra,21.347,79.301,Underground,1930
