@@ -3,13 +3,19 @@ import { useOutletContext } from "react-router-dom";
 import ProductionTrendPanel from "../components/ProductionTrendPanel";
 import DataEntryPanel from "../components/DataEntryPanel";
 import { fmtTonnes } from "../theme";
-import { getProductionTrend } from "../api/client";
+import { getProductionTrend, getDailyActuals, getMonthlyTargets } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 export default function ProductionPage() {
   const { selectedMine, mines } = useOutletContext();
+  const { user } = useAuth();
+  const role = user?.role || "admin";
   const [trend, setTrend] = useState([]);
   const [days, setDays] = useState(120);
   const [loaded, setLoaded] = useState(false);
+  // For admin read-only review of field/planner submissions
+  const [recentActuals, setRecentActuals] = useState(null);
+  const [plannerTargets, setPlannerTargets] = useState(null);
 
   const mineName = mines?.find((m) => m.mine_id === selectedMine)?.mine_name || "";
 
@@ -18,7 +24,16 @@ export default function ProductionPage() {
       setTrend(d);
       setLoaded(true);
     });
-  }, [selectedMine, days]);
+    // Load review data for admin/planner/equip read-only views
+    if (role === "admin" || role === "planner" || role === "equip") {
+      getDailyActuals(selectedMine || undefined).then(rows => setRecentActuals(rows.slice(-7).reverse())).catch(()=>setRecentActuals([]));
+      if (selectedMine) {
+        getMonthlyTargets(selectedMine).then(rows=>setPlannerTargets(rows)).catch(()=>setPlannerTargets([]));
+      } else {
+        setPlannerTargets([]);
+      }
+    }
+  }, [selectedMine, days, role]);
 
   useEffect(() => {
     setLoaded(false);
@@ -91,16 +106,97 @@ export default function ProductionPage() {
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <div>
-            <span className="panel-eyebrow">Manual data entry</span>
-            <h2>Log Today's Data &amp; Set Targets</h2>
+      {/* Role-segregated entry: field logs, planner sets targets, admin sees replicated review */}
+      {role === "field" && (
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <span className="panel-eyebrow">Field Team — Daily ledger</span>
+              <h2>Log Today's Data</h2>
+            </div>
+            <span className="panel-note">Your entries flow to the chart and risk model and are visible to Admin/Planner</span>
           </div>
-          <span className="panel-note">Saved actuals and targets show up in the chart above and feed the risk model immediately</span>
+          <DataEntryPanel mineId={selectedMine} mineName={mineName} mines={mines} onSaved={refresh} mode="field" />
         </div>
-        <DataEntryPanel mineId={selectedMine} mineName={mineName} mines={mines} onSaved={refresh} />
-      </div>
+      )}
+
+      {role === "planner" && (
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <span className="panel-eyebrow">Mine Planner — Targets only</span>
+              <h2>Set Planned Tonnage</h2>
+            </div>
+            <span className="panel-note">Targets you set replicate to Admin and feed the trend/shortfall model</span>
+          </div>
+          <DataEntryPanel mineId={selectedMine} mineName={mineName} mines={mines} onSaved={refresh} mode="planner" />
+        </div>
+      )}
+
+      {role === "admin" && (
+        <>
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-eyebrow">Admin — Read-only review • Field submissions (last 7 entries)</span>
+                <h2>Field Team Updates — Replicated for Time Period</h2>
+              </div>
+              <span className="panel-note">Logged by Field Teams • Planner targets below</span>
+            </div>
+            {!recentActuals ? (
+              <div className="panel-note">Loading field submissions…</div>
+            ) : recentActuals.length === 0 ? (
+              <div className="panel-note">No field submissions yet for this period/mine. Field teams log via their workspace.</div>
+            ) : (
+              <div style={{ overflowX:"auto" }}>
+                <table className="data-table">
+                  <thead><tr><th>Date</th><th>Mine</th><th className="mono">Actual</th><th className="mono">Downtime</th><th className="mono">Rain</th></tr></thead>
+                  <tbody>
+                    {recentActuals.map((r,i)=>(
+                      <tr key={i}><td className="mono">{r.date}</td><td>{mines.find(m=>m.mine_id===r.mine_id)?.mine_name || r.mine_id}</td><td className="mono">{fmtTonnes(r.actual_tonnes)}</td><td className="mono">{r.equipment_downtime_hours}h</td><td className="mono">{r.rainfall_mm}mm</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-eyebrow">Admin — Read-only review • Planner targets</span>
+                <h2>Planned Targets Set by Planners</h2>
+              </div>
+            </div>
+            {!selectedMine ? (
+              <div className="panel-note">Select a mine in the topbar to see its targets as set by Planners.</div>
+            ) : !plannerTargets ? (
+              <div className="panel-note">Loading targets…</div>
+            ) : plannerTargets.length===0 ? (
+              <div className="panel-note">No targets set yet by planners for {mineName}.</div>
+            ) : (
+              <div style={{ overflowX:"auto" }}>
+                <table className="data-table">
+                  <thead><tr><th>Month</th><th className="mono">Target</th></tr></thead>
+                  <tbody>{plannerTargets.map(t=>(<tr key={t.month}><td className="mono">{t.month}</td><td className="mono">{fmtTonnes(t.target_tonnes)}</td></tr>))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {role === "equip" && (
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <span className="panel-eyebrow">Equipment Ops — Read-only</span>
+              <h2>Production View</h2>
+            </div>
+            <span className="panel-note">You see trends and targets but do not log field/planner data</span>
+          </div>
+          <div className="panel-note">Field teams log actuals and Planners set targets — shown above in the trend. Your workspace is <strong>Fleet</strong> for health &amp; reallocation.</div>
+        </div>
+      )}
     </>
   );
 }
